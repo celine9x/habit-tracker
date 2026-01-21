@@ -7,7 +7,7 @@ import { ProgressBar } from "@/components/base/progress-indicators/progress-indi
 import { Tabs } from "@/components/application/tabs/tabs";
 import { HabitForm } from "@/components/habit-form";
 import { useHabits } from "@/hooks/useHabits";
-import type { Habit } from "@/types/habit";
+import type { Habit, HabitType, ReduceConfig } from "@/types/habit";
 
 type ProgressView = "day" | "week" | "month";
 
@@ -51,7 +51,15 @@ function formatMonthYear(year: number, month: number): string {
 }
 
 // Inline editable habit name component
-function InlineEditableHabitName({ habit, onRename }: { habit: Habit; onRename: (id: string, name: string) => void }) {
+function InlineEditableHabitName({
+    habit,
+    onRename,
+    todayTarget
+}: {
+    habit: Habit;
+    onRename: (id: string, name: string) => void;
+    todayTarget?: number;
+}) {
     const [isEditing, setIsEditing] = useState(false);
     const [editValue, setEditValue] = useState(habit.name);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -81,6 +89,9 @@ function InlineEditableHabitName({ habit, onRename }: { habit: Habit; onRename: 
         }
     };
 
+    // Get the unit for reduce habits
+    const unit = habit.reduceConfig?.unit ?? "";
+
     if (isEditing) {
         return (
             <input
@@ -96,13 +107,27 @@ function InlineEditableHabitName({ habit, onRename }: { habit: Habit; onRename: 
     }
 
     return (
-        <span
-            onClick={() => setIsEditing(true)}
-            className="cursor-pointer text-sm font-medium text-primary hover:text-brand-primary"
-            title="Click to edit"
-        >
-            {habit.name}
-        </span>
+        <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+                <span
+                    onClick={() => setIsEditing(true)}
+                    className="cursor-pointer text-sm font-medium text-primary hover:text-brand-primary"
+                    title="Click to edit"
+                >
+                    {habit.name}
+                </span>
+                {habit.habitType === "reduce" && (
+                    <span className="rounded bg-warning-secondary px-1.5 py-0.5 text-[10px] font-medium text-warning-primary">
+                        Reduce
+                    </span>
+                )}
+            </div>
+            {habit.habitType === "reduce" && todayTarget !== undefined && (
+                <span className="text-xs text-tertiary">
+                    Today: {todayTarget} {unit}
+                </span>
+            )}
+        </div>
     );
 }
 
@@ -118,6 +143,7 @@ export const HomeScreen = () => {
         getCompletionCountForWeek,
         getCompletionCountForMonth,
         renameHabit,
+        getReduceTarget,
     } = useHabits();
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
@@ -168,11 +194,11 @@ export const HomeScreen = () => {
         setIsFormOpen(true);
     };
 
-    const handleFormSubmit = (name: string, frequency: any) => {
+    const handleFormSubmit = (name: string, frequency: any, habitType: HabitType, reduceConfig?: ReduceConfig) => {
         if (editingHabit) {
-            updateHabit(editingHabit.id, name, frequency);
+            updateHabit(editingHabit.id, name, frequency, habitType, reduceConfig);
         } else {
-            addHabit(name, frequency);
+            addHabit(name, frequency, habitType, reduceConfig);
         }
     };
 
@@ -307,51 +333,63 @@ export const HomeScreen = () => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {habits.map((habit) => (
-                                        <tr key={habit.id} className="group">
-                                            {/* Habit name cell - inline editable */}
-                                            <td className="sticky left-0 z-10 border-b border-r border-border-secondary bg-primary px-3 py-2">
-                                                <InlineEditableHabitName habit={habit} onRename={renameHabit} />
-                                            </td>
-                                            {/* Day cells */}
-                                            {daysInMonth.map((dateStr) => {
-                                                const isCompleted = isCompletedOnDate(habit, dateStr);
-                                                const isToday = dateStr === today;
-                                                const isPast = isPastDate(dateStr, today);
-                                                return (
-                                                    <td
-                                                        key={dateStr}
-                                                        onClick={() => handleCellClick(habit.id, dateStr)}
-                                                        className={`cursor-pointer border-b border-border-secondary px-1 py-2 text-center transition-colors hover:bg-secondary ${
-                                                            isToday ? "bg-brand-solid/10" : isPast ? "bg-tertiary/30" : ""
-                                                        }`}
-                                                    >
-                                                        <div className="flex items-center justify-center">
-                                                            <div
-                                                                className={`h-5 w-5 rounded-full border-2 transition-colors ${
-                                                                    isCompleted
-                                                                        ? isPast
-                                                                            ? "border-brand-solid/60 bg-brand-solid/60"
-                                                                            : "border-brand-solid bg-brand-solid"
-                                                                        : isPast
-                                                                          ? "border-border-secondary bg-transparent"
-                                                                          : "border-border-primary bg-transparent hover:border-brand-secondary"
-                                                                }`}
-                                                            >
-                                                                {isCompleted && (
-                                                                    <svg className="h-full w-full text-white" viewBox="0 0 20 20" fill="currentColor">
-                                                                        <path
-                                                                            fillRule="evenodd"
-                                                                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                                                                            clipRule="evenodd"
-                                                                        />
-                                                                    </svg>
+                                    {habits.map((habit) => {
+                                        const todayReduceTarget = habit.habitType === "reduce" ? getReduceTarget(habit, today) : undefined;
+                                        return (
+                                            <tr key={habit.id} className="group">
+                                                {/* Habit name cell - inline editable */}
+                                                <td className="sticky left-0 z-10 border-b border-r border-border-secondary bg-primary px-3 py-2">
+                                                    <InlineEditableHabitName habit={habit} onRename={renameHabit} todayTarget={todayReduceTarget} />
+                                                </td>
+                                                {/* Day cells */}
+                                                {daysInMonth.map((dateStr) => {
+                                                    const isCompleted = isCompletedOnDate(habit, dateStr);
+                                                    const isToday = dateStr === today;
+                                                    const isPast = isPastDate(dateStr, today);
+                                                    const isReduceHabit = habit.habitType === "reduce";
+                                                    const reduceTarget = isReduceHabit ? getReduceTarget(habit, dateStr) : 0;
+
+                                                    return (
+                                                        <td
+                                                            key={dateStr}
+                                                            onClick={() => handleCellClick(habit.id, dateStr)}
+                                                            className={`cursor-pointer border-b border-border-secondary px-1 py-2 text-center transition-colors hover:bg-secondary ${
+                                                                isToday ? "bg-brand-solid/10" : isPast ? "bg-tertiary/30" : ""
+                                                            }`}
+                                                        >
+                                                            <div className="flex flex-col items-center justify-center gap-0.5">
+                                                                {/* Checkbox - same for both habit types */}
+                                                                <div
+                                                                    className={`h-5 w-5 rounded-full border-2 transition-colors ${
+                                                                        isCompleted
+                                                                            ? isPast
+                                                                                ? "border-brand-solid/60 bg-brand-solid/60"
+                                                                                : "border-brand-solid bg-brand-solid"
+                                                                            : isPast
+                                                                              ? "border-border-secondary bg-transparent"
+                                                                              : "border-border-primary bg-transparent hover:border-brand-secondary"
+                                                                    }`}
+                                                                >
+                                                                    {isCompleted && (
+                                                                        <svg className="h-full w-full text-white" viewBox="0 0 20 20" fill="currentColor">
+                                                                            <path
+                                                                                fillRule="evenodd"
+                                                                                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                                                                clipRule="evenodd"
+                                                                            />
+                                                                        </svg>
+                                                                    )}
+                                                                </div>
+                                                                {/* Show target for reduce habits */}
+                                                                {isReduceHabit && (
+                                                                    <span className={`text-[10px] ${isPast ? "text-quaternary" : "text-tertiary"}`}>
+                                                                        /{reduceTarget}
+                                                                    </span>
                                                                 )}
                                                             </div>
-                                                        </div>
-                                                    </td>
-                                                );
-                                            })}
+                                                        </td>
+                                                    );
+                                                })}
                                             {/* Delete button cell */}
                                             <td className="sticky right-0 z-10 border-b border-l border-border-secondary bg-primary px-2 py-2">
                                                 <div className="flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
@@ -367,7 +405,8 @@ export const HomeScreen = () => {
                                                 </div>
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
